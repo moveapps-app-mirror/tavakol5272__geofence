@@ -436,31 +436,6 @@ shinyModule <- function(input, output, session, data) {
     }
   }
   
-  # app_upload <- reactiveVal(NULL)
-  # upload_msg <- reactiveVal("")
-  # 
-  # observeEvent(input$upload_user_polygon, {
-  #   info <- input$upload_user_polygon
-  #   
-  #   if (!tolower(tools::file_ext(info$name)) %in% c("zip", "gpkg")) {
-  #     logger.info("Invalid upload '%s': only .zip or .gpkg allowed.", info$name)
-  #     upload_msg("Please upload only a .zip shapefile or a .gpkg file.")
-  #     app_upload(NULL)
-  #     return()
-  #   }
-  #   
-  #   poly <- normalize_boundary(read_polygon_upload(info$datapath))
-  #   if (is.null(poly)) {
-  #     logger.info("No polygons could be read from the uploaded file '%s'.", info$name)
-  #     upload_msg("No polygons could be read from this file.")
-  #   } else {
-  #     logger.info("Uploaded boundary file '%s' read with %d polygon(s).", info$name, nrow(poly))
-  #     upload_msg("")
-  #   }
-  #   app_upload(poly)
-  # })
-  # 
-  # output$upload_msg <- renderText(upload_msg())
   
   # the file uploaded here is kept by 'Store settings' (the MoveApps SDK stores it with the settings)
   app_upload <- reactive({
