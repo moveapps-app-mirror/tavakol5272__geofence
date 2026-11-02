@@ -81,8 +81,6 @@ With `All locations, with flag columns`, all locations of all tracks are returne
 
 **No locations left:** If no locations remain after filtering, the App returns NULL with a warning in the log.
 
-**Shared Workflows:** MoveApps shares the stored settings of a Workflow but not files uploaded in the App. In a shared Workflow the `Polygon boundary file` setting is used instead, if provided.
-
 **Big data:** With very large datasets (e.g. more than 200,000 locations) the map may respond slowly.
 
 ### Technical details
