@@ -4,7 +4,7 @@
     {
       "id": "polygon",
       "name": "Polygon boundary file",
-      "description": "Upload one file with the polygon boundary (one or more polygons) used to flag locations as inside or outside. Polygon file: zipped shapefile (.zip) or GeoPackage (.gpkg). If none is uploaded, a fallback file is used.,
+      "description": "Polygon file: zipped shapefile (.zip) or GeoPackage (.gpkg).",
       "type": "USER_FILE"
     }
   ],

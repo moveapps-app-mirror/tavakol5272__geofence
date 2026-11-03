@@ -1,27 +1,27 @@
-# Interactive Geofence
+# Geofence
 
 MoveApps
 
-Github repository: https://github.com/tavakol5272/Geofence
+Github repository: *https://github.com/nilanjanchatterjee/Geofence*
 
 ## Description
-Flags animal locations as inside or outside one or more polygon boundaries, drawn directly on an interactive map or uploaded as a .zip shapefile or .gpkg file. The flagged data can be passed on with flag columns added, or filtered to only the locations inside or outside the boundary.
+This App classifies animal tracking locations as inside or outside a user-provided polygon boundary, uploaded as a zipped shapefile (.zip) or a GeoPackage (.gpkg). The App returns the full input data with an additional `within` column and creates a CSV table of the classification and a PNG plot for visually checking the result.
 
 ## Documentation
-This App geofences animal tracking data. The user defines a polygon boundary either by drawing polygons, rectangles or circles on the interactive map, or by uploading a polygon file (.zip shapefile or .gpkg). A polygon file can be uploaded in the App itself, or provided as the `Polygon boundary file` setting when the Workflow is configured; the file uploaded in the App takes precedence.
+This App applies a geofence to animal tracking data. The polygon boundary (one or several polygons) is taken from the file uploaded in the App settings, either as a zipped shapefile (.zip) or a GeoPackage (.gpkg). No default polygon is provided: if no file is uploaded, the App returns the input data unchanged and asks the user in the log to upload a polygon file.
 
-Clicking `Flag Points` classifies every location of all tracks as inside or outside the boundary and records which polygon(s) contain it. A location exactly on the border of a polygon counts as outside. When the App is opened, the stored settings (selected tracks, drawn shapes or uploaded file, output option) are applied automatically, so a Workflow run with stored settings returns the flagged data without opening the App.
+The polygon geometries are repaired if invalid and transformed to WGS84 (EPSG:4326). Each tracking location is then checked against all polygons and classified as inside or outside. A location counts as inside if it lies within at least one polygon; locations lying exactly on a polygon edge are classified as outside.
 
-The map shows the selected tracks as lines and their locations as points in the track colour. Locations inside the boundary have a black border, locations outside a gold border. Popups show the track, time (UTC), coordinates, flag and polygon number. Uploaded boundaries are shown in red. The `Summary` tab lists per selected track the number of locations inside and outside the boundary.
+The returned dataset contains all input locations with an additional `within` column, in which `1` indicates that the location is inside and `0` that it is outside the polygon(s). The output data keep the coordinate reference system of the input data.
 
-The map (HTML or PNG), the drawn boundary (GeoPackage) and the flagged locations of the selected tracks (CSV) can be downloaded from the App. A drawn boundary saved as GeoPackage can be uploaded again in a later run.
+The App also creates a CSV table with the classification of every location and a PNG quality-control plot showing the polygon boundary, tracking locations, track lines and inside/outside classification.
 
 ### Application scope
 #### Generality of App usability
 This App was developed for any taxonomic group.
 
 #### Required data properties
-The App should work for any kind of location data in any coordinate reference system.
+The App should work for any kind of (location) data. The input data need a coordinate reference system, and the polygon boundary should overlap with the tracking data.
 
 ### Input type
 `move2::move2_loc`
@@ -30,61 +30,37 @@ The App should work for any kind of location data in any coordinate reference sy
 `move2::move2_loc`
 
 ### Artefacts
-The App does not create artefacts. The following files can be downloaded locally from the App UI:
+The following artefacts are created when a valid polygon boundary is used:
 
-`Geofence_map_<date>.html`: interactive map of the selected tracks, flagged locations and boundary.  
-`Geofence_map_<date>.png`: static image of the same map.  
-`drawn_boundary_<date>.gpkg`: this button is only shown when `Draw area on map` is selected as `Boundary source`. It downloads the shapes drawn on the map as a GeoPackage (see Artefacts), which can be uploaded again with `Upload area file` in a later run.
-`flagged_points_<date>.csv`: locations of the selected tracks with the columns `track_id`, `longitude`, `latitude`, `timestamp` (UTC), `flag` (`inside`, `outside` or `-` if not flagged) and `shape_id`.
+`flagged_points.csv`: table with one row per location, containing `track_id`, `longitude` and `latitude` (WGS84), `timestamp`, `flag` (`inside`/`outside`) and `shape_id` (row number(s) of the polygon(s) containing the location, comma separated; empty if outside). Locations without coordinates have `NA` in the coordinate, `flag` and `shape_id` columns.
+
+`geofence_check.png`: map showing the polygon boundary (labelled "Polygon" + `shape_id`), track lines and locations coloured by inside/outside classification. It helps to visually confirm that the classification is correct. The map is drawn in an azimuthal equidistant projection centred on the data, so polygons appear with their true shape on the ground (e.g. a rectangle drawn on a web map may appear slightly trapezoidal). Some locations close to a polygon border may look slightly misplaced because of the point size, but their classification in the output data and the table is correct.
 
 ### Settings
-**Settings in the App UI:**
-
-`Tracks` (animals): select the tracks shown on the map and used for the summary and CSV download. `Select All` and `Unselect All` select or unselect all tracks. Default: all tracks. The track selection does not affect the data passed on to the next App.
-
-`Boundary source` (boundary_method): `Draw area on map` to draw polygons, rectangles or circles with the drawing toolbar on the map, or `Upload area file` to use a polygon file. Default: `Draw area on map`. Drawn shapes are kept by `Store settings` and shown again on the map when the App is reopened.
-
-`Choose polygon file (.zip shapefile or .gpkg)` (upload_user_polygon): only shown for `Upload area file`. A zipped shapefile (the first `.shp` in the zip is used) or a GeoPackage (the first layer with polygons is used). The uploaded file is kept by `Store settings`. If no file is uploaded here, the `Polygon boundary file` of the App settings is used.
-
-`Data passed on to the next App` (output_mode): `All locations, with flag columns` (default), `Only locations inside the boundary` or `Only locations outside the boundary`.
-
-`Flag Points`: applies the selected tracks, boundary and output option. Changes take effect only after clicking this button.
-
-`Download map as HTML`, `Download map as PNG`, `Download drawn boundary (.gpkg)` (only for `Draw area on map`) and `Download selected flagged data CSV`: see Artefacts.
-
-`Store settings`: click to store the current settings of the App for future Workflow runs. 
-
-`Restore default settings`: click to restore to the default setting values of the App.
-
-**Setting in the App configuration:**
-
-`Polygon boundary file` (boundary_file): optional. A .zip shapefile or a .gpkg with polygons, uploaded when configuring the Workflow. It is only used when `Upload area file` is selected and no file is uploaded in the App. To use it in Workflow runs, open the App once, select `Upload area file` and click `Store settings`.
+`Polygon boundary file` (polygon): one file containing the polygon boundary, either a zipped shapefile (`.zip`, containing at least `.shp`, `.shx`, `.dbf` and preferably `.prj`) or a GeoPackage (`.gpkg`). If the `.zip` contains several shapefiles, only the first one is used; in a GeoPackage, the first layer containing only polygons is used. There is no default; if no file is uploaded, the input data are returned unchanged.
 
 ### Changes in output data
-The App adds to the input data the columns:
+The App adds to the input data the column `within`. It contains the geofence result for each location: `1` = inside, `0` = outside, `NA` = location without coordinates. All locations and the coordinate reference system of the input data are kept. If the input data already contain a column `within`, it is overwritten (a warning is written to the log).
 
-`within`: `1` if the location is inside the boundary, `0` if outside, `NA` if no boundary was defined or the location has no coordinates.  
-`shape_id`: number(s) of the polygon(s) that contain the location, separated by commas if polygons overlap (e.g. `1,3`); empty if outside, `NA` if not flagged. Polygons are numbered in drawing order or in the row order of the uploaded file.
-
-With `All locations, with flag columns`, all locations of all tracks are returned. With `Only locations inside/outside the boundary`, only the locations with `within` = `1` or `0` are returned; locations without coordinates are removed. The coordinate reference system of the input data is kept.
+If no valid polygon boundary is available, the input data remain unchanged (no `within` column is added).
 
 ### Errors and null handling
-**Input data:** If the input data are NULL or have 0 rows, the App returns NULL. If the input has no coordinate reference system, longitude/latitude (EPSG:4326) is assumed with a warning in the log.
+**Input data:** If the input data are NULL or contain no locations, the App returns NULL. If the input data have no coordinate reference system, the App stops with an error.
 
-**Existing columns:** If the input data already contain a column `within` or `shape_id`, it is overwritten and a warning is written to the log.
+**No polygon file uploaded:** a warning asks the user to upload a polygon file; the input data are returned unchanged and no artefacts are created.
 
-**Unsupported upload:** Only .zip shapefiles and .gpkg files with polygon geometry are supported. Otherwise a red message is shown under the upload and no boundary is used.
+**Invalid file type:** only `.zip` (shapefile) and `.gpkg` files are supported; otherwise the input data are returned unchanged and no artefacts are created.
 
-**No boundary:** If no boundary is drawn or uploaded, the locations are not flagged (`within` and `shape_id` are `NA`) and the data are passed on unfiltered, also if a filter option is selected.
+**No valid polygon boundary found:** if the file cannot be read, the `.zip` contains no shapefile, the GeoPackage has no layer with only polygons, or the geometries are not POLYGON/MULTIPOLYGON, the reason is written to the log and the input data are returned unchanged without artefacts.
 
-**No track selected:** `Flag Points` shows a red message and nothing is applied.
+**Polygon file without coordinate reference system:** the polygons are assumed to be in WGS84 (EPSG:4326) and a warning is written to the log. Make sure your file contains a `.prj` (shapefile) or a defined CRS (GeoPackage) if it is in another projection.
 
-**No locations left:** If no locations remain after filtering, the App returns NULL with a warning in the log.
+**Locations near polygon edges:** the App treats polygon edges as great-circle lines (shortest path on the globe). For large polygons with few vertices, e.g. rectangles drawn on web maps such as Leaflet, edges therefore bend towards the pole compared with the map display, and locations close to an edge may be classified differently than they appear on the map.
 
-**Big data:** With very large datasets (e.g. more than 200,000 locations) the map may respond slowly.
+**Common error:** If no locations are classified as inside, check that the polygon boundary overlaps with the tracking data and that its coordinate reference system is defined correctly.
 
 ### Technical details
-- Locations are transformed to EPSG:4326 for flagging and display only; the returned data keep their original projection.
-- The point-in-polygon test uses `sf::st_within()` on all locations at once, computed once per click on `Flag Points`; invalid polygon geometries are repaired with `sf::st_make_valid()`.
-- Circles drawn on the map are converted to polygons by buffering the centre point in its UTM zone.
-- Drawn shapes are stored as GeoJSON in a hidden input
+- The classification uses `sf::st_within()` on the whole dataset at once; for longitude/latitude data, `sf` uses spherical geometry (s2), so polygon edges are great-circle lines.
+- Polygons are repaired with `sf::st_make_valid()` and transformed to EPSG:4326. The input data are transformed to the polygon CRS for the classification only; the returned data keep their original CRS.
+- `shape_id` is the row number of each polygon in the boundary file; an existing `shape_id` column in the file is replaced (warning in the log).
+- The PNG map is made with `ggplot2` in an azimuthal equidistant (AEQD) projection centred on the bounding box of the polygons and locations (9 × 6 inches, 300 dpi). Track lines are built with `move2::mt_track_lines()`; if they cannot be built, the map is created without them.
