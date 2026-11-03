@@ -579,7 +579,11 @@ shinyModule <- function(input, output, session, data) {
       add_base_maps(c("Boundary", "Track lines", "Points")) %>%
       addScaleBar(position = "topleft") %>%
       addLegend(position = "bottomright", colors = c("black", "gold"),
-                labels = c("inside border", "outside border"), title = "Flags")
+                labels = c("inside border", "outside border"), title = "Flags")%>%
+      addControl(
+        html = "<small>For large polygons, inside/outside classification near the edges may differ slightly from the map display.</small>",
+        position = "topleft"
+      )
     
     bb <- if (is.null(isolate(applied()))) NULL else data_bbox(isolate(display_data()))
     m <- if (is.null(bb)) {
