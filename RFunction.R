@@ -219,6 +219,19 @@ rFunction = function(data, ...) {
       geom_sf_text(data = label_sf, aes(label = poly_label), size = 3)
   }
   
+  bb <- sf::st_bbox(c(
+    sf::st_geometry(boundary_sf),
+    sf::st_geometry(plot_points)
+  ))
+  
+  aeqd <- sprintf(
+    "+proj=aeqd +lat_0=%f +lon_0=%f +datum=WGS84 +units=m",
+    (bb[["ymin"]] + bb[["ymax"]]) / 2,
+    (bb[["xmin"]] + bb[["xmax"]]) / 2
+  )
+  
+  qc_plot <- qc_plot + coord_sf(crs = aeqd)
+  
   ggsave(appArtifactPath("geofence_check.png"), plot = qc_plot, width = 9, height = 6, units = "in", dpi = 300)
   
   return(data)
