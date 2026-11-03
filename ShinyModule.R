@@ -218,16 +218,18 @@ add_base_maps <- function(map, overlayGroups = NULL, osm = TRUE) {
 }
 
 ### helper 10: boundary, track lines and points; works for leaflet() maps and leafletProxy()
+# the marker shape shows the flag (inside: solid, outside: hollow ring), the colour shows the track
 add_geofence_layers <- function(map, d, tl, bnd) {
   if (!is.null(bnd) && nrow(bnd) > 0) {
-    map <- addPolygons(map, data = bnd, fill = TRUE, weight = 3, color = "red", group = "Boundary")
+    map <- addPolygons(map, data = bnd, fill = TRUE, weight = 3, color = "red", fillOpacity = 0.1, group = "Boundary")
   }
   if (!is.null(tl) && nrow(tl) > 0) {
     map <- addPolylines(map, data = tl, weight = 3, opacity = 0.95, color = ~line_color, group = "Track lines")
   }
   if (!is.null(d) && nrow(d) > 0) {
-    map <- addCircleMarkers(map, data = d, radius = 6, stroke = TRUE, weight = ~border_weight, color = ~border_color,
-                            fillColor = ~point_color, fillOpacity = 0.95, popup = ~popup_html, group = "Points")
+    map <- addCircleMarkers(map, data = d, radius = ~point_radius, stroke = TRUE, weight = ~border_weight,
+                            opacity = 1, color = ~border_color, fillColor = ~point_color,
+                            fillOpacity = ~fill_opacity, popup = ~popup_html, group = "Points")
   }
   map
 }
@@ -237,6 +239,29 @@ data_bbox <- function(d) {
   if (is.null(d) || nrow(d) == 0) return(NULL)
   bb <- sf::st_bbox(d)
   if (all(is.finite(bb))) bb else NULL
+}
+
+### helper 12: legend of the flag symbols
+legend_symbol <- function(fill, border, border_px, size_px, opacity = 1, ring = "none") {
+  side <- (14 - size_px) / 2
+  sprintf(paste0("<span style='display:inline-block;box-sizing:border-box;width:%dpx;height:%dpx;border-radius:50%%;",
+                 "background:%s;border:%spx solid %s;box-shadow:%s;opacity:%s;vertical-align:middle;",
+                 "margin:0 %spx 2px %spx;'></span>"),
+          size_px, size_px, fill, border_px, border, ring, opacity, side + 6, side + 1)
+}
+
+
+
+add_flag_legend <- function(map) {
+  html <- paste0(
+    "<div style='background:white;padding:6px 10px;border-radius:5px;box-shadow:0 1px 5px rgba(0,0,0,0.4);",
+    "font:12px/20px Arial,sans-serif;'>",
+    "<b>Flags</b> <span style='color:#666;'>(colour = track)</span><br>",
+    legend_symbol("lightblue", "#000000", 3, 14), "inside<br>",
+    legend_symbol("#FFFFFF", "lightblue", 3, 14), "outside<br>",
+    legend_symbol("lightblue", "lightblue", 1, 10, opacity = 0.6), "not flagged",
+    "</div>")
+  addControl(map, html = html, position = "bottomright")
 }
 
 ############################################### Interface #################################
@@ -436,7 +461,6 @@ shinyModule <- function(input, output, session, data) {
     }
   }
   
-  
   # the file uploaded here is kept by 'Store settings' (the MoveApps SDK stores it with the settings)
   app_upload <- reactive({
     info <- input$upload_user_polygon
@@ -467,8 +491,6 @@ shinyModule <- function(input, output, session, data) {
       ""
     }
   })
-  
-  
   
   upload_boundary <- reactive({
     app_upload() %||% settings_boundary
@@ -551,10 +573,15 @@ shinyModule <- function(input, output, session, data) {
     d <- d[order(d$track_id_chr, mt_time(d)), ]
     
     d$flag <- ifelse(is.na(d$within), "-", ifelse(d$within == 1, "inside", "outside"))
-    d$point_color <- unname(track_cols[d$track_id_chr])
-    d$border_color <- ifelse(d$flag == "inside", "black",
-                             ifelse(d$flag == "outside", "gold", d$point_color))
-    d$border_weight <- ifelse(d$flag %in% c("inside", "outside"), 4, 3)
+    
+    # inside: solid dot with a white outline; outside: hollow ring; not flagged: small transparent dot
+    trk_col <- unname(track_cols[d$track_id_chr])
+    d$point_color <- ifelse(d$flag == "outside", "#FFFFFF", trk_col)
+    d$border_color <- ifelse(d$flag == "inside", "#000000", trk_col)
+    d$border_weight <- ifelse(d$flag == "outside", 3, 1)
+    d$point_radius <- ifelse(d$flag == "-", 4, 6)
+    d$fill_opacity <- ifelse(d$flag == "-", 0.6, 0.95)
+    
     d$popup_html <- make_point_popup(d)
     d
   })
@@ -578,12 +605,7 @@ shinyModule <- function(input, output, session, data) {
     m <- leaflet(options = leafletOptions(minZoom = 2)) %>%
       add_base_maps(c("Boundary", "Track lines", "Points")) %>%
       addScaleBar(position = "topleft") %>%
-      addLegend(position = "bottomright", colors = c("black", "gold"),
-                labels = c("inside border", "outside border"), title = "Flags")%>%
-      addControl(
-        html = "<small>For large polygons, inside/outside classification near the edges may differ slightly from the map display.</small>",
-        position = "topleft"
-      )
+      add_flag_legend()
     
     bb <- if (is.null(isolate(applied()))) NULL else data_bbox(isolate(display_data()))
     m <- if (is.null(bb)) {
@@ -651,8 +673,7 @@ shinyModule <- function(input, output, session, data) {
       add_base_maps(c("Boundary", "Track lines", "Points"), osm = FALSE) %>%
       addScaleBar(position = "topleft") %>%
       add_geofence_layers(d, track_lines_data(), applied()$boundary) %>%
-      addLegend(position = "bottomright", colors = c("black", "gold"),
-                labels = c("inside border", "outside border"), title = "Flags")
+      add_flag_legend()
     
     bb <- data_bbox(d)
     if (!is.null(bb)) {
