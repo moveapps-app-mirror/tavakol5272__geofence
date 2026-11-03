@@ -2,41 +2,64 @@ library(move2)
 library(sf)
 library(ggplot2)
 
+## The parameter "data" is reserved for the data object passed on from the previous App.
+## The polygon boundary comes from the USER_FILE setting "polygon" (with a fixed fallback file
+## in provided-app-files/polygon/) and is read with getAuxiliaryFilePath("polygon").
+
+# to display messages to the user in the log file of the App in MoveApps
+# one can use the function from the src/common/logger.R file:
+# logger.fatal(), logger.error(), logger.warn(), logger.info(), logger.debug(), logger.trace()
 
 ######### Helpers ##############
 
-### helper 1: read uploaded polygon boundary
-read_polygon_upload <- function(path) {
-  if (is.null(path) || !file.exists(path)) return(NULL)
+### helper 1: read polygon boundary file (.zip shapefile or .gpkg)
+read_polygon_file <- function(path) {
+  ext <- tolower(tools::file_ext(path))
   
-  # zipped shapefile
-  if (grepl("\\.zip$", path, ignore.case = TRUE)) {
+  # zipped shapefile: use the first .shp found
+  if (ext == "zip") {
     td <- tempfile("polyzip_")
     dir.create(td, recursive = TRUE, showWarnings = FALSE)
-    unzip(path, exdir = td)
+    utils::unzip(path, exdir = td)
     
-    shp <- list.files(td, pattern = "\\.shp$", recursive = TRUE, full.names = TRUE)
-    if (length(shp) == 0) return(NULL)
+    shp <- list.files(td, pattern = "\\.shp$", recursive = TRUE, full.names = TRUE, ignore.case = TRUE)
+    if (length(shp) == 0) {
+      logger.warn("The .zip file contains no .shp file.")
+      return(NULL)
+    }
+    if (length(shp) > 1) {
+      logger.warn("The .zip file contains %d shapefiles; only '%s' is used.", length(shp), basename(shp[1]))
+    }
     
-    poly <- tryCatch(sf::read_sf(shp[1]), error = function(e) NULL)
+    poly <- tryCatch(sf::read_sf(shp[1]), error = function(e) {
+      logger.warn("The shapefile could not be read: %s", conditionMessage(e))
+      NULL
+    })
     return(poly)
   }
   
-  # GeoPackage: read first polygon layer
-  if (grepl("\\.gpkg$", path, ignore.case = TRUE)) {
-    layers_info <- tryCatch(sf::st_layers(path), error = function(e) NULL)
-    if (is.null(layers_info) || nrow(layers_info) == 0) return(NULL)
+  # GeoPackage: use the first layer that contains only polygons
+  if (ext == "gpkg") {
+    layers <- tryCatch(sf::st_layers(path)$name, error = function(e) {
+      logger.warn("The GeoPackage could not be read: %s", conditionMessage(e))
+      NULL
+    })
     
-    for (lyr in layers_info$name) {
-      obj <- tryCatch(sf::read_sf(path, layer = lyr), error = function(e) NULL)
-      if (is.null(obj) || nrow(obj) == 0) next
+    for (lyr in layers) {
+      obj <- tryCatch(sf::read_sf(path, layer = lyr), error = function(e) {
+        logger.warn("GeoPackage layer '%s' could not be read: %s", lyr, conditionMessage(e))
+        NULL
+      })
+      if (is.null(obj) || !inherits(obj, "sf") || nrow(obj) == 0) next
       
       gtypes <- unique(as.character(sf::st_geometry_type(obj)))
       if (all(gtypes %in% c("POLYGON", "MULTIPOLYGON"))) {
+        logger.info("Using polygon layer '%s' of the GeoPackage.", lyr)
         return(obj)
       }
     }
     
+    logger.warn("The GeoPackage contains no layer with only POLYGON/MULTIPOLYGON geometries.")
     return(NULL)
   }
   
@@ -47,80 +70,61 @@ read_polygon_upload <- function(path) {
 normalize_boundary <- function(poly) {
   if (is.null(poly) || nrow(poly) == 0) return(NULL)
   
-  poly <- tryCatch(sf::st_make_valid(poly), error = function(e) poly)
+  poly <- tryCatch(sf::st_make_valid(poly), error = function(e) {
+    logger.warn("Polygon geometries could not be repaired, using them as they are: %s", conditionMessage(e))
+    poly
+  })
   
   if (is.na(sf::st_crs(poly))) {
+    logger.warn("The polygon file has no coordinate reference system. Assuming EPSG:4326 (WGS84 longitude/latitude).")
     sf::st_crs(poly) <- 4326
   }
   
   poly <- sf::st_transform(poly, 4326)
   
   gtypes <- unique(as.character(sf::st_geometry_type(poly)))
-  if (!all(gtypes %in% c("POLYGON", "MULTIPOLYGON"))) return(NULL)
+  if (!all(gtypes %in% c("POLYGON", "MULTIPOLYGON"))) {
+    logger.warn("Boundary geometries must be POLYGON or MULTIPOLYGON, found: %s", paste(gtypes, collapse = ", "))
+    return(NULL)
+  }
   
+  if ("shape_id" %in% names(poly)) {
+    logger.warn("The existing column 'shape_id' of the polygon file is replaced by the polygon row number.")
+  }
   poly$shape_id <- seq_len(nrow(poly))
   poly
 }
 
-
-### helper 3: build flagged points table
-build_flagged_table <- function(d, boundary_sf, track_col) {
-  if (is.null(d) || nrow(d) == 0) {
-    return(data.frame(
-      track_id = character(0),
-      longitude = numeric(0),
-      latitude = numeric(0),
-      timestamp = character(0),
-      flag = character(0),
-      shape_id = character(0),
-      stringsAsFactors = FALSE
-    ))
+### helper 3: build flagged points table (coordinates in EPSG:4326)
+build_flagged_table <- function(d_ll, within, shape_ids, track_col) {
+  xy <- matrix(NA_real_, nrow = nrow(d_ll), ncol = 2)
+  not_empty <- !sf::st_is_empty(d_ll)
+  if (any(not_empty)) {
+    xy[not_empty, ] <- sf::st_coordinates(sf::st_geometry(d_ll)[not_empty])[, 1:2, drop = FALSE]
   }
   
-  xy <- sf::st_coordinates(d)
-  
-  out <- data.frame(
-    track_id = as.character(d[[track_col]]),
+  data.frame(
+    track_id = as.character(d_ll[[track_col]]),
     longitude = xy[, 1],
     latitude = xy[, 2],
-    timestamp = as.character(mt_time(d)),
-    flag = "-",
-    shape_id = "",
+    timestamp = as.character(mt_time(d_ll)),
+    flag = ifelse(within == 1, "inside", "outside"),
+    shape_id = shape_ids,
     stringsAsFactors = FALSE
   )
-  
-  if (is.null(boundary_sf) || nrow(boundary_sf) == 0) {
-    return(out)
-  }
-  
-  
-  hits <- sf::st_within(d, boundary_sf)
-  #hits <- sf::st_intersects(d, boundary_sf)
-  #hits <- sf::st_covered_by(d, boundary_sf)
-  inside <- lengths(hits) > 0
-  
-  out$flag <- ifelse(inside, "inside", "outside")
-  out$shape_id[inside] <- vapply(hits[inside], function(idx) {
-    paste(boundary_sf$shape_id[idx], collapse = ",")
-  }, character(1))
-  
-  out
 }
 
+############ Main function ##############
 
-rFunction <- function(data, polygon, ...) {
+rFunction = function(data, ...) {
   
   if (is.null(data) || nrow(data) == 0) {
-    logger.info("Input is NULL or has 0 rows. Returning input data.")
-    return(data)
+    logger.info("Input is NULL or has 0 rows. Returning NULL.")
+    return(NULL)
   }
   
-  if (!inherits(data, "sf")) {
-    stop("Input data must be an sf/move2 object.")
-  }
-  
-  if (!sf::st_is_longlat(data)) {
-    data <- sf::st_transform(data, 4326)
+  if (is.na(sf::st_crs(data))) {
+    stop("The input data have no coordinate reference system, so they cannot be compared with the polygon boundary.")
   }
   
   track_col <- mt_track_id_column(data)
@@ -128,71 +132,81 @@ rFunction <- function(data, polygon, ...) {
   polygon_path <- getAuxiliaryFilePath("polygon")
   
   if (is.null(polygon_path) || !file.exists(polygon_path)) {
-    logger.info("No polygon file found. Returning input data.")
+    logger.info("No polygon file found (neither uploaded nor fallback). Returning input data unchanged.")
     return(data)
   }
+  
+  logger.info("Using polygon file '%s'.", basename(polygon_path))
   
   if (!tolower(tools::file_ext(polygon_path)) %in% c("zip", "gpkg")) {
-    logger.info("Invalid polygon file. Only .zip and .gpkg are supported.")
+    logger.info("Invalid polygon file. Only .zip (shapefile) and .gpkg are supported. Returning input data unchanged.")
     return(data)
   }
   
-  boundary_sf <- read_polygon_upload(polygon_path)
+  boundary_sf <- normalize_boundary(read_polygon_file(polygon_path))
   
   if (is.null(boundary_sf)) {
-    logger.info("No valid polygon boundary found. Returning input data.")
+    logger.info("No valid polygon boundary found. Returning input data unchanged.")
     return(data)
   }
   
-  boundary_sf <- normalize_boundary(boundary_sf)
+  # classification is done on a copy in the polygon CRS (EPSG:4326); the output keeps the input CRS
+  data_ll <- if (sf::st_crs(data) == sf::st_crs(boundary_sf)) data else sf::st_transform(data, sf::st_crs(boundary_sf))
   
-  if (is.null(boundary_sf)) {
-    logger.info("Uploaded boundary is not a valid polygon. Returning input data.")
-    return(data)
-  }
-  
-  # full data with one extra column: within
-  full_flagged_data <- data
-  full_flagged_data$within <- NA_integer_
-  
-  keep <- !sf::st_is_empty(full_flagged_data)
+  keep <- !sf::st_is_empty(data_ll)
+  within <- rep(NA_integer_, nrow(data))
+  shape_ids <- rep(NA_character_, nrow(data))
   
   if (any(keep)) {
-    hits <- sf::st_within(full_flagged_data[keep, ], boundary_sf)
-    inside <- lengths(hits) > 0
-    full_flagged_data$within[keep] <- as.integer(inside)
+    hits <- sf::st_within(data_ll[keep, ], boundary_sf)
+    within[keep] <- as.integer(lengths(hits) > 0)
+    shape_ids[keep] <- vapply(hits, function(idx) {
+      paste(boundary_sf$shape_id[idx], collapse = ",")
+    }, character(1))
   }
   
-  data_sf <- full_flagged_data
-  trck_data <- tryCatch(mt_track_lines(full_flagged_data), error = function(e) NULL)
+  logger.info("%d locations inside, %d outside, %d without coordinates.",
+              sum(within == 1, na.rm = TRUE), sum(within == 0, na.rm = TRUE), sum(is.na(within)))
   
-  # flagged table artifact
-  flagged_table <- build_flagged_table(full_flagged_data, boundary_sf, track_col)
-  
-  if (!is.null(flagged_table) && nrow(flagged_table) > 0) {
-    write.csv(flagged_table, appArtifactPath("flagged_points.csv"), row.names = FALSE)
+  # output data: input with one extra column 'within'
+  if ("within" %in% names(data)) {
+    logger.warn("The existing column 'within' of the input data is overwritten.")
   }
+  data$within <- within
+  data_ll$within <- within
   
+  # flagged table artefact
+  flagged_table <- build_flagged_table(data_ll, within, shape_ids, track_col)
+  write.csv(flagged_table, appArtifactPath("flagged_points.csv"), row.names = FALSE)
   
-  ##create a label column
-  label_sf <- tryCatch(sf::st_point_on_surface(boundary_sf), error = function(e) NULL)
+  # map artefact
+  plot_points <- data_ll[keep, ]
+  
+  trck_data <- tryCatch(mt_track_lines(plot_points), error = function(e) {
+    logger.warn("Track lines could not be added to the map: %s", conditionMessage(e))
+    NULL
+  })
+  
+  label_sf <- tryCatch(sf::st_point_on_surface(boundary_sf), error = function(e) {
+    logger.warn("Polygon labels could not be added to the map: %s", conditionMessage(e))
+    NULL
+  })
   if (!is.null(label_sf) && nrow(label_sf) > 0) {
     label_sf$poly_label <- paste("Polygon", label_sf$shape_id)
   }
   
   qc_plot <- ggplot() +
     geom_sf(data = boundary_sf, fill = "grey85", color = "black", linewidth = 0.4) +
-    geom_sf(data = data_sf, aes(color = factor(within)), size = 0.8, alpha = 0.8 ) +
+    geom_sf(data = plot_points, aes(color = factor(within)), size = 0.8, alpha = 0.8) +
     scale_color_manual(
       values = c("0" = "red", "1" = "darkgreen"),
       labels = c("0" = "Outside", "1" = "Inside"),
       name = "Point status"
     ) +
-    labs( x = "Longitude",y = "Latitude",
-      title = "Geofence classification check"
+    labs(x = "Longitude", y = "Latitude",
+         title = "Geofence classification check"
     ) +
     theme_bw()
-  
   
   if (!is.null(trck_data) && nrow(trck_data) > 0) {
     qc_plot <- qc_plot +
@@ -204,6 +218,7 @@ rFunction <- function(data, polygon, ...) {
       geom_sf_text(data = label_sf, aes(label = poly_label), size = 3)
   }
   
-  ggsave(appArtifactPath("geofence_check.png"), plot = qc_plot,  width = 9, height = 6, units = "in", dpi = 300)
-  return(full_flagged_data)
+  ggsave(appArtifactPath("geofence_check.png"), plot = qc_plot, width = 9, height = 6, units = "in", dpi = 300)
+  
+  return(data)
 }
