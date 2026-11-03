@@ -250,8 +250,6 @@ legend_symbol <- function(fill, border, border_px, size_px, opacity = 1, ring = 
           size_px, size_px, fill, border_px, border, ring, opacity, side + 6, side + 1)
 }
 
-
-
 add_flag_legend <- function(map) {
   html <- paste0(
     "<div style='background:white;padding:6px 10px;border-radius:5px;box-shadow:0 1px 5px rgba(0,0,0,0.4);",
