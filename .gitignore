@@ -7,3 +7,4 @@
 data/output/**
 !data/output/.keep
 tests/testthat/plot.png
+personal.env

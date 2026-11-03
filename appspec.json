@@ -21,12 +21,6 @@
       }
     ]
   },
-  "providedAppFiles": [
-    {
-      "settingId": "polygon",
-      "from": "data/auxiliary/user-files/provided-app-files/polygon/"
-    }
-  ],
   "license": {
     "key": "MIT"
   },

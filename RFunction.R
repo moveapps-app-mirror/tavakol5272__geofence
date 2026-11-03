@@ -133,6 +133,7 @@ rFunction = function(data, ...) {
   
   if (is.null(polygon_path) || !file.exists(polygon_path)) {
     logger.info("No polygon file found (neither uploaded nor fallback). Returning input data unchanged.")
+    logger.warn("Please upload a polygon file (.zip shapefile or .gpkg) in the App settings.")
     return(data)
   }
   

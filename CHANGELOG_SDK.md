@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10
+
+### Added
+- Example in `sdk.R`: run your App locally with other settings than in `app-configuration.json`, e.g. with personal credentials from `personal.env`, via `moveapps::runMoveAppsApp(args)`. This replaces overriding `args` in `sdk.R`, which fails since `4.0.0` with "object of type 'closure' is not subsettable"
+- `personal.env` in `.gitignore`
+
+### Changed
+- Upgraded the [`moveapps`](https://github.com/movestore/moveapps-sdk-r-package) SDK package to `v1.2.0`
+
+## [4.0.2] - 2026-09
+
+### Changed
+- Updated `README.md` including new sections
+- Updated `move2` and `telemetry list` input files
+
+## [4.0.1] - 2026-09
+
+### Added
+- `cmake` to the `Dockerfile`: `rocker/geospatial` dropped it with R `4.5.3`, and without it `s2` — and therefore `sf` and `move2` — cannot be built
+
+### Changed
+- Upgraded `R` to version `4.6.1` (`renv.lock` + `Dockerfile`)
+    - Your fork keeps its own `renv.lock` and `renv/` — both are listed in `.github/.templatesyncignore` and are not synced. After taking this update, `renv` reports an R version mismatch against the new base image. To follow along, run `renv::restore()` inside a container built from the new `Dockerfile` and commit the regenerated `renv.lock`. If your App uses neither Docker nor `renv`, nothing changes for you.
+- Upgraded the [`moveapps`](https://github.com/movestore/moveapps-sdk-r-package) SDK package to `v1.0.3`
+- Upgraded `renv` to `1.2.4`
+
 ## [4.0.0] - 2025-10
 
 ### Added
